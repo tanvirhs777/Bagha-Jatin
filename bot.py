@@ -1,11 +1,18 @@
+import os
 import discord
 import requests
 import asyncio
 
-TOKEN = "DUMMY"
-API_KEY = "DUMMY"
-CHANNEL_ID = 0
+print("BOT FILE LOADED")
 
+TOKEN = os.getenv("DISCORD_TOKEN")
+API_KEY = os.getenv("API_KEY")
+CHANNEL_ID = os.getenv("CHANNEL_ID")
+
+print("ENV CHECK:",
+      bool(TOKEN),
+      bool(API_KEY),
+      CHANNEL_ID)
 
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
@@ -16,41 +23,39 @@ headers = {
 
 @client.event
 async def on_ready():
-    print(f"✅ Logged in as {client.user}")
-    client.loop.create_task(live_match_loop())
+    print(f"LOGGED IN AS {client.user}")
+    asyncio.create_task(live_loop())
 
-async def live_match_loop():
+async def live_loop():
     await client.wait_until_ready()
-    channel = client.get_channel(CHANNEL_ID)
-    last_msg = ""
+    channel = client.get_channel(int(CHANNEL_ID))
+    print("CHANNEL FOUND:", bool(channel))
 
     while True:
         try:
-            url = "https://api.football-data.org/v4/matches?status=LIVE"
-            res = requests.get(url, headers=headers).json()
+            r = requests.get(
+                "https://api.football-data.org/v4/matches?status=LIVE",
+                headers=headers,
+                timeout=10
+            )
+            data = r.json()
 
-            if res.get("matches"):
-                match = res["matches"][0]
-
-                home = match["homeTeam"]["name"]
-                away = match["awayTeam"]["name"]
-                score = match["score"]["fullTime"]
-                minute = match.get("minute", "LIVE")
-                competition = match["competition"]["name"]
-
+            if data.get("matches"):
+                m = data["matches"][0]
                 msg = (
-                    f"⚽ **LIVE MATCH**\n"
-                    f"{home} {score['home']} - {score['away']} {away}\n"
-                    f"🏆 {competition}"
+                    f"⚽ LIVE\n"
+                    f"{m['homeTeam']['name']} "
+                    f"{m['score']['fullTime']['home']} - "
+                    f"{m['score']['fullTime']['away']} "
+                    f"{m['awayTeam']['name']}"
                 )
-
-                if msg != last_msg:
-                    last_msg = msg
-                    await channel.send(msg)
+                await channel.send(msg)
 
         except Exception as e:
-            print("❌ Error:", e)
+            print("LOOP ERROR:", e)
 
-        await asyncio.sleep(60)  # প্রতি 60 সেকেন্ডে চেক
+        await asyncio.sleep(60)
 
-client.run(TOKEN)
+if __name__ == "__main__":
+    print("STARTING BOT...")
+    client.run(TOKEN)
