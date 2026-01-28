@@ -1,67 +1,98 @@
 import os
 import discord
-import requests
-from discord.ext import commands
+import aiohttp
+import asyncio
+from discord import app_commands
 
-print("BOT FILE LOADED")
-
-# ENV
 TOKEN = os.getenv("DISCORD_TOKEN")
-API_KEY = os.getenv("API_KEY")
+CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 
-print("ENV CHECK:", bool(TOKEN), bool(API_KEY))
-
-# INTENTS
 intents = discord.Intents.default()
-intents.message_content = True
+client = discord.Client(intents=intents)
+tree = app_commands.CommandTree(client)
 
-# BOT
-bot = commands.Bot(command_prefix="!", intents=intents)
+SOFA_URL = "https://api.sofascore.com/api/v1/sport/football/events/live"
 
-HEADERS = {
-    "X-Auth-Token": API_KEY
-}
+TARGET_TEAMS = ["Real Madrid", "Barcelona"]
+posted_events = {}
 
-# READY
-@bot.event
-async def on_ready():
-    print(f"✅ LOGGED IN AS {bot.user}")
+# -------------------- UTIL --------------------
+async def fetch_live():
+    async with aiohttp.ClientSession() as session:
+        async with session.get(SOFA_URL) as r:
+            return await r.json()
 
-# PING
-@bot.command()
-async def ping(ctx):
-    await ctx.send("🏓 Pong!")
+def is_target_match(match):
+    home = match["homeTeam"]["name"]
+    away = match["awayTeam"]["name"]
+    return home in TARGET_TEAMS or away in TARGET_TEAMS
 
-# LIVE MATCH COMMAND
-@bot.command()
-async def live(ctx):
-    try:
-        r = requests.get(
-            "https://api.football-data.org/v4/matches?status=LIVE",
-            headers=HEADERS,
-            timeout=10
+# -------------------- SLASH COMMANDS --------------------
+@tree.command(name="live", description="Show live matches (RM / Barca)")
+async def live(interaction: discord.Interaction):
+    data = await fetch_live()
+    matches = [m for m in data["events"] if is_target_match(m)]
+
+    if not matches:
+        await interaction.response.send_message("❌ এখন কোনো লাইভ ম্যাচ নেই", ephemeral=True)
+        return
+
+    msgs = []
+    for m in matches:
+        msgs.append(
+            f"⚽ **LIVE**\n"
+            f"{m['homeTeam']['name']} {m['homeScore']['current']} - "
+            f"{m['awayScore']['current']} {m['awayTeam']['name']}\n"
+            f"⏱ {m['time']['current']}′"
         )
-        data = r.json()
 
-        if not data.get("matches"):
-            await ctx.send("❌ এখন কোনো লাইভ ম্যাচ নেই")
-            return
+    await interaction.response.send_message("\n\n".join(msgs))
 
-        msgs = []
-        for m in data["matches"][:5]:  # max 5 match
-            msgs.append(
-                f"⚽ **LIVE**\n"
-                f"{m['homeTeam']['name']} "
-                f"{m['score']['fullTime']['home']} - "
-                f"{m['score']['fullTime']['away']} "
-                f"{m['awayTeam']['name']}"
-            )
+@tree.command(name="laliga", description="La Liga live (RM / Barca)")
+async def laliga(interaction: discord.Interaction):
+    await live(interaction)
 
-        await ctx.send("\n\n".join(msgs))
+@tree.command(name="epl", description="EPL live")
+async def epl(interaction: discord.Interaction):
+    await interaction.response.send_message("⚠️ এখন শুধু RM / Barca enabled", ephemeral=True)
 
-    except Exception as e:
-        print("LIVE CMD ERROR:", e)
-        await ctx.send("⚠️ API error, পরে আবার try করো")
+@tree.command(name="ucl", description="UCL live (RM / Barca)")
+async def ucl(interaction: discord.Interaction):
+    await live(interaction)
 
-# RUN
-bot.run(TOKEN)
+# -------------------- AUTO GOAL LOOP --------------------
+async def goal_watcher():
+    await client.wait_until_ready()
+    channel = client.get_channel(CHANNEL_ID)
+
+    while True:
+        try:
+            data = await fetch_live()
+            for m in data["events"]:
+                if not is_target_match(m):
+                    continue
+
+                event_id = m["id"]
+                score = f"{m['homeScore']['current']}-{m['awayScore']['current']}"
+
+                if posted_events.get(event_id) != score:
+                    posted_events[event_id] = score
+                    await channel.send(
+                        f"🚨 **GOAL UPDATE**\n"
+                        f"{m['homeTeam']['name']} {m['homeScore']['current']} - "
+                        f"{m['awayScore']['current']} {m['awayTeam']['name']}\n"
+                        f"⏱ {m['time']['current']}′"
+                    )
+        except Exception as e:
+            print("ERROR:", e)
+
+        await asyncio.sleep(30)
+
+# -------------------- READY --------------------
+@client.event
+async def on_ready():
+    await tree.sync()
+    print(f"✅ Logged in as {client.user}")
+    client.loop.create_task(goal_watcher())
+
+client.run(TOKEN)
