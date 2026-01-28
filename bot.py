@@ -1,10 +1,12 @@
 import os
 import discord
-import requests
 import asyncio
+import requests
+from discord.ext import commands
 
 print("BOT FILE LOADED")
 
+# -------- ENV --------
 TOKEN = os.getenv("DISCORD_TOKEN")
 API_KEY = os.getenv("API_KEY")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
@@ -12,32 +14,42 @@ CHANNEL_ID = os.getenv("CHANNEL_ID")
 print("ENV CHECK:",
       bool(TOKEN),
       bool(API_KEY),
-      CHANNEL_ID)
+      bool(CHANNEL_ID))
 
+if not TOKEN or not API_KEY or not CHANNEL_ID:
+    raise RuntimeError("Missing ENV variables")
+
+# -------- INTENTS --------
 intents = discord.Intents.default()
 intents.message_content = True
 intents.presences = True
 intents.members = True
 
+# -------- BOT --------
 bot = commands.Bot(command_prefix="!", intents=intents)
-
-client = discord.Client(intents=intents)
 
 headers = {
     "X-Auth-Token": API_KEY
 }
 
-@client.event
+# -------- EVENTS --------
+@bot.event
 async def on_ready():
-    print(f"LOGGED IN AS {client.user}")
-    asyncio.create_task(live_loop())
+    print(f"LOGGED IN AS {bot.user}")
+    bot.loop.create_task(live_loop())
 
+# -------- LIVE LOOP --------
 async def live_loop():
-    await client.wait_until_ready()
-    channel = client.get_channel(int(CHANNEL_ID))
-    print("CHANNEL FOUND:", bool(channel))
+    await bot.wait_until_ready()
+    channel = bot.get_channel(int(CHANNEL_ID))
 
-    while True:
+    if not channel:
+        print("❌ CHANNEL NOT FOUND")
+        return
+
+    print("✅ CHANNEL FOUND, STARTING LIVE LOOP")
+
+    while not bot.is_closed():
         try:
             r = requests.get(
                 "https://api.football-data.org/v4/matches?status=LIVE",
@@ -49,7 +61,7 @@ async def live_loop():
             if data.get("matches"):
                 m = data["matches"][0]
                 msg = (
-                    f"⚽ LIVE\n"
+                    f"⚽ **LIVE MATCH**\n"
                     f"{m['homeTeam']['name']} "
                     f"{m['score']['fullTime']['home']} - "
                     f"{m['score']['fullTime']['away']} "
@@ -62,6 +74,6 @@ async def live_loop():
 
         await asyncio.sleep(60)
 
-if __name__ == "__main__":
-    print("STARTING BOT...")
-    client.run(TOKEN)
+# -------- RUN --------
+print("STARTING BOT...")
+bot.run(TOKEN)
