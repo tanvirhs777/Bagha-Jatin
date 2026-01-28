@@ -23,7 +23,7 @@ headers = {
 
 @bot.event
 async def on_ready():
-    print(f"✅ LOGGED IN AS {bot.user}")
+    print(f"LOGGED IN AS {bot.user}")
     bot.loop.create_task(live_loop())
 
 @bot.command()
@@ -35,7 +35,8 @@ async def live_loop():
     channel = bot.get_channel(int(CHANNEL_ID))
     print("CHANNEL FOUND:", bool(channel))
 
-    last_msg = None
+    if channel is None:
+        return
 
     while True:
         try:
@@ -48,18 +49,14 @@ async def live_loop():
 
             if data.get("matches"):
                 m = data["matches"][0]
-
                 msg = (
-                    f"⚽ **LIVE MATCH**\n"
+                    f"⚽ LIVE MATCH\n"
                     f"{m['homeTeam']['name']} "
                     f"{m['score']['fullTime']['home']} - "
                     f"{m['score']['fullTime']['away']} "
                     f"{m['awayTeam']['name']}"
                 )
-
-                if msg != last_msg:
-                    await channel.send(msg)
-                    last_msg = msg
+                await channel.send(msg)
 
         except Exception as e:
             print("LOOP ERROR:", e)
